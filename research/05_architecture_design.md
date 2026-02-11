@@ -740,18 +740,19 @@ claude mcp add --transport stdio odbc -- python -m mcp_odbc
 
 ## 14. Phased Roadmap
 
-### Phase 1: MVP (target: 1-2 days)
+### Phase 1: MVP (target: 1-2 days) ✅ COMPLETE
 
-- [ ] Project scaffolding (pyproject.toml, module structure)
-- [ ] Config system (env vars + INI + Pydantic validation)
-- [ ] ConnectionManager (lazy connect, health check, close)
-- [ ] GenericODBCAdapter (cursor.tables, cursor.columns, cursor.primaryKeys, cursor.foreignKeys)
-- [ ] DBMS detection (SQL_DBMS_NAME + adapter registry)
-- [ ] Core tools: `list_dsns`, `test_connection`, `list_tables`, `describe_table`, `execute_query`
-- [ ] Read-only enforcement (3-layer)
-- [ ] Markdown output formatting
-- [ ] Basic error handling with SQLSTATE mapping
-- [ ] Entry point + Claude Code integration
+- [x] Project scaffolding (pyproject.toml, module structure)
+- [x] Config system (env vars + INI + Pydantic validation)
+- [x] ConnectionManager (lazy connect, health check, close)
+- [x] GenericODBCAdapter (cursor.tables, cursor.columns, cursor.primaryKeys, cursor.foreignKeys)
+- [x] DBMS detection (SQL_DBMS_NAME + adapter registry)
+- [x] Core tools: `list_dsns`, `list_connections`, `test_connection`, `list_tables`, `describe_table`, `execute_query`, `get_primary_keys`, `get_foreign_keys`
+- [x] Read-only enforcement (3-layer)
+- [x] Markdown output formatting + JSON option on execute_query
+- [x] Basic error handling with SQLSTATE mapping + credential sanitization
+- [x] Entry point + Claude Code integration
+- [x] 65 unit + integration tests (all passing, mocked pyodbc)
 - [ ] Test against local NetSuite ODBC DSN
 
 ### Phase 2: System Adapters (target: 1-2 days)
@@ -762,7 +763,7 @@ claude mcp add --transport stdio odbc -- python -m mcp_odbc
 - [ ] MySQLAdapter (INFORMATION_SCHEMA)
 - [ ] OracleAdapter (ALL_* dictionary)
 - [ ] Encoding auto-configuration per detected DBMS
-- [ ] Additional tools: `get_primary_keys`, `get_foreign_keys`, `search_tables`
+- [ ] Additional tools: `search_tables` (get_primary_keys, get_foreign_keys done in Phase 1)
 
 ### Phase 3: Advanced Features (target: 1-2 days)
 

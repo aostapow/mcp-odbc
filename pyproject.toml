@@ -1,0 +1,21 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "mcp-odbc"
+version = "0.1.0"
+description = "Universal ODBC MCP server for Claude Code"
+license = "MIT"
+requires-python = ">=3.10"
+dependencies = [
+    "fastmcp>=2.0,<3.0",
+    "pyodbc>=5.0",
+    "pydantic>=2.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest", "pytest-asyncio", "ruff"]
+
+[project.scripts]
+mcp-odbc = "mcp_odbc.server:main"
