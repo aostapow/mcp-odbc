@@ -55,7 +55,10 @@ class ConnectionManager:
         except pyodbc.Error as exc:
             raise handle_odbc_error(exc) from exc
 
-        cnxn.timeout = conn_config.query_timeout
+        try:
+            cnxn.timeout = conn_config.query_timeout
+        except pyodbc.Error:
+            pass  # Some drivers don't support SQLSetConnectAttr for timeout
 
         # Detect DBMS and cache adapter
         try:

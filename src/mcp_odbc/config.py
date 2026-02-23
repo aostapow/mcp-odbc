@@ -93,6 +93,14 @@ def load_config() -> ServerConfig:
     if dsn or conn_string:
         env_conn_string = conn_string if conn_string else f"DSN={dsn}"
 
+        # Append UID/PWD from env vars if not already in the connection string
+        uid = os.environ.get("ODBC_UID")
+        pwd = os.environ.get("ODBC_PWD")
+        if uid and "UID=" not in env_conn_string.upper():
+            env_conn_string += f";UID={uid}"
+        if pwd and "PWD=" not in env_conn_string.upper():
+            env_conn_string += f";PWD={pwd}"
+
         readonly_str = os.environ.get("ODBC_READ_ONLY", "true")
         readonly = readonly_str.lower() in ("true", "1", "yes")
 
