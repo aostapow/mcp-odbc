@@ -16,13 +16,16 @@ def get_tables(
     connection: str | None = None,
     schema: str | None = None,
     table_type: str | None = None,
+    name_pattern: str | None = None,
 ) -> list[dict]:
     """List tables for a connection."""
     cnxn = manager.get(connection)
     adapter = manager.get_adapter(connection)
     cursor = cnxn.cursor()
     try:
-        return adapter.get_tables(cursor, schema=schema, table_type=table_type)
+        return adapter.get_tables(
+            cursor, schema=schema, table_type=table_type, name_pattern=name_pattern
+        )
     finally:
         cursor.close()
 

@@ -31,6 +31,7 @@ class SystemAdapter(ABC):
         cursor: pyodbc.Cursor,
         schema: str | None = None,
         table_type: str | None = None,
+        name_pattern: str | None = None,
     ) -> list[dict]:
         """List tables/views."""
 

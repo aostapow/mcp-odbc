@@ -26,6 +26,7 @@ class GenericODBCAdapter(SystemAdapter):
         cursor: pyodbc.Cursor,
         schema: str | None = None,
         table_type: str | None = None,
+        name_pattern: str | None = None,
     ) -> list[dict]:
         """List tables via cursor.tables()."""
         kwargs: dict = {}
@@ -33,6 +34,8 @@ class GenericODBCAdapter(SystemAdapter):
             kwargs["schema"] = schema
         if table_type:
             kwargs["tableType"] = table_type
+        if name_pattern:
+            kwargs["table"] = name_pattern
         cursor.tables(**kwargs)
         rows = cursor.fetchall()
         return [

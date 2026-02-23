@@ -124,20 +124,27 @@ def list_tables(
     connection: str | None = None,
     schema: str | None = None,
     table_type: str | None = None,
+    name_pattern: str | None = None,
 ) -> str:
     """List tables and views in the database.
 
     Use this to discover what tables are available before querying.
+    Use name_pattern to filter by table name with SQL LIKE wildcards:
+    % matches any sequence of characters, _ matches a single character.
+    Examples: "%invoice%" finds all tables containing "invoice",
+    "AR_%" finds tables starting with "AR_".
 
     Args:
         connection: Connection name. Uses default if not specified.
         schema: Filter by schema/owner name.
         table_type: Filter by type — e.g. "TABLE", "VIEW", "SYSTEM TABLE".
+        name_pattern: Filter by table name using SQL LIKE pattern (% and _ wildcards).
     """
     manager = _get_manager()
     try:
         tables = metadata.get_tables(
-            manager, connection=connection, schema=schema, table_type=table_type
+            manager, connection=connection, schema=schema, table_type=table_type,
+            name_pattern=name_pattern,
         )
     except pyodbc.Error as exc:
         raise handle_odbc_error(exc) from exc
@@ -155,23 +162,33 @@ def describe_table(
     table: str,
     connection: str | None = None,
     schema: str | None = None,
+    include: str = "columns",
 ) -> str:
-    """Describe a table's columns, primary keys, and foreign keys.
+    """Describe a table's structure — columns, primary keys, and/or foreign keys.
 
     Use this to understand a table's structure before writing queries.
-    Returns column names, types, sizes, nullability, plus PK and FK info.
+    By default returns only columns. Use include to also fetch PKs/FKs.
+    For targeted PK/FK lookups, you can also use the get_primary_keys
+    and get_foreign_keys tools directly.
 
     Args:
         table: Table name to describe.
         connection: Connection name. Uses default if not specified.
         schema: Schema/owner of the table.
+        include: What to include — "columns" (default), "all" (columns + PKs + FKs),
+            or a comma-separated list like "columns,pks" or "columns,fks".
     """
     manager = _get_manager()
 
+    # Parse include parameter
+    include_parts = {p.strip().lower() for p in include.split(",")}
+    want_pks = "all" in include_parts or "pks" in include_parts
+    want_fks = "all" in include_parts or "fks" in include_parts
+
     try:
         cols = metadata.get_columns(manager, table=table, connection=connection, schema=schema)
-        pks = metadata.get_primary_keys(manager, table=table, connection=connection, schema=schema)
-        fks = metadata.get_foreign_keys(manager, table=table, connection=connection, schema=schema)
+        pks = metadata.get_primary_keys(manager, table=table, connection=connection, schema=schema) if want_pks else []
+        fks = metadata.get_foreign_keys(manager, table=table, connection=connection, schema=schema) if want_fks else []
     except pyodbc.Error as exc:
         raise handle_odbc_error(exc) from exc
 

@@ -150,6 +150,150 @@ async def test_execute_query_json(client):
 
 
 @pytest.mark.asyncio
+async def test_list_tables_with_name_pattern(client, setup_manager):
+    mock_cursor = setup_manager["cursor"]
+    async with client:
+        result = await client.call_tool(
+            "list_tables", {"name_pattern": "%user%"}
+        )
+        text = result.content[0].text
+        assert "users" in text
+        # Verify the pattern was passed through to cursor.tables()
+        mock_cursor.tables.assert_called()
+        call_kwargs = mock_cursor.tables.call_args
+        assert call_kwargs[1].get("table") == "%user%"
+
+
+@pytest.mark.asyncio
+async def test_describe_table_columns_only(client, setup_manager):
+    """Default include='columns' should not call primaryKeys or foreignKeys."""
+    mock_cursor = setup_manager["cursor"]
+    # Set up column results
+    mock_cursor.columns.return_value = None
+    mock_cursor.description = [
+        ("column_name",), ("type_name",), ("column_size",), ("nullable",), ("remarks",),
+    ]
+    mock_cursor.fetchall.return_value = [
+        MagicMock(column_name="id", type_name="INTEGER", column_size=10, nullable=0, remarks=""),
+    ]
+    mock_cursor.primaryKeys.reset_mock()
+    mock_cursor.foreignKeys.reset_mock()
+
+    async with client:
+        result = await client.call_tool("describe_table", {"table": "users"})
+        text = result.content[0].text
+        assert "Columns" in text
+        assert "Primary Keys" not in text
+        assert "Foreign Keys" not in text
+        mock_cursor.primaryKeys.assert_not_called()
+        mock_cursor.foreignKeys.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_describe_table_all(client, setup_manager):
+    """include='all' should return columns + PKs + FKs."""
+    mock_cursor = setup_manager["cursor"]
+    # Columns
+    mock_cursor.columns.return_value = None
+    mock_cursor.description = [
+        ("column_name",), ("type_name",), ("column_size",), ("nullable",), ("remarks",),
+    ]
+    mock_cursor.fetchall.return_value = [
+        MagicMock(column_name="id", type_name="INTEGER", column_size=10, nullable=0, remarks=""),
+    ]
+    # PKs — set up description and fetchall for primaryKeys call
+    pk_desc = [("table_cat",), ("table_schem",), ("table_name",), ("column_name",), ("key_seq",), ("pk_name",)]
+    pk_rows = [MagicMock(**{d[0]: f"pk_{d[0]}" for d in pk_desc})]
+    # FKs
+    fk_desc = [("pktable_name",), ("pkcolumn_name",), ("fktable_name",), ("fkcolumn_name",)]
+    fk_rows = [MagicMock(**{d[0]: f"fk_{d[0]}" for d in fk_desc})]
+
+    # We need description to alternate per cursor call. Use side_effect on the property.
+    call_count = {"n": 0}
+    descs = [
+        # get_columns calls cursor.columns(), then cursor.description, then fetchall
+        [("column_name",), ("type_name",), ("column_size",), ("nullable",), ("remarks",)],
+        # get_primary_keys calls cursor.primaryKeys(), then cursor.description, then fetchall
+        pk_desc,
+        # get_foreign_keys calls cursor.foreignKeys(), then cursor.description, then fetchall
+        fk_desc,
+    ]
+    fetchall_results = [
+        [MagicMock(column_name="id", type_name="INTEGER", column_size=10, nullable=0, remarks="")],
+        pk_rows,
+        fk_rows,
+    ]
+
+    type(mock_cursor).description = property(
+        lambda self: descs[call_count["n"]]
+    )
+    original_fetchall = mock_cursor.fetchall
+    def rotating_fetchall():
+        idx = call_count["n"]
+        call_count["n"] += 1
+        return fetchall_results[idx]
+    mock_cursor.fetchall = rotating_fetchall
+
+    async with client:
+        result = await client.call_tool(
+            "describe_table", {"table": "users", "include": "all"}
+        )
+        text = result.content[0].text
+        assert "Columns" in text
+        assert "Primary Keys" in text
+        assert "Foreign Keys" in text
+
+    # Restore mock
+    mock_cursor.fetchall = original_fetchall
+    type(mock_cursor).description = property(lambda self: [
+        ("id", None, None, None, None, None, None),
+        ("name", None, None, None, None, None, None),
+    ])
+
+
+@pytest.mark.asyncio
+async def test_describe_table_selective_fks(client, setup_manager):
+    """include='columns,fks' should fetch columns + FKs but not PKs."""
+    mock_cursor = setup_manager["cursor"]
+    # Columns
+    col_desc = [("column_name",), ("type_name",), ("column_size",), ("nullable",), ("remarks",)]
+    col_rows = [MagicMock(column_name="id", type_name="INTEGER", column_size=10, nullable=0, remarks="")]
+    # FKs
+    fk_desc = [("pktable_name",), ("pkcolumn_name",), ("fktable_name",), ("fkcolumn_name",)]
+    fk_rows = [MagicMock(**{d[0]: f"fk_{d[0]}" for d in fk_desc})]
+
+    call_count = {"n": 0}
+    descs = [col_desc, fk_desc]
+    fetchall_results = [col_rows, fk_rows]
+
+    type(mock_cursor).description = property(
+        lambda self: descs[call_count["n"]]
+    )
+    def rotating_fetchall():
+        idx = call_count["n"]
+        call_count["n"] += 1
+        return fetchall_results[idx]
+    mock_cursor.fetchall = rotating_fetchall
+    mock_cursor.primaryKeys.reset_mock()
+
+    async with client:
+        result = await client.call_tool(
+            "describe_table", {"table": "users", "include": "columns,fks"}
+        )
+        text = result.content[0].text
+        assert "Columns" in text
+        assert "Primary Keys" not in text
+        assert "Foreign Keys" in text
+        mock_cursor.primaryKeys.assert_not_called()
+
+    # Restore mock
+    type(mock_cursor).description = property(lambda self: [
+        ("id", None, None, None, None, None, None),
+        ("name", None, None, None, None, None, None),
+    ])
+
+
+@pytest.mark.asyncio
 async def test_execute_query_write_blocked(client):
     from fastmcp.exceptions import ToolError
 
