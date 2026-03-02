@@ -1,0 +1,35 @@
+# Example CLAUDE.md snippet for mcp-odbc
+#
+# Add the section below to your project's CLAUDE.md file.
+# This tells Claude Code to automatically dispatch the odbc-crawler
+# agent for all database work, keeping your main context window clean.
+#
+# Prerequisites:
+#   1. mcp-odbc is installed and configured in your .mcp.json
+#   2. examples/agents/odbc-crawler.md is copied to .claude/agents/
+
+## ODBC Data Source
+
+When you need to query, explore schema, or retrieve data from the database, **always dispatch the `odbc-crawler` agent** rather than calling MCP tools directly. This isolates database interactions in a separate context window so query results, schema dumps, and error diagnostics don't consume the main conversation context.
+
+### When to dispatch the agent
+
+- Table discovery — finding tables by name pattern
+- Schema inspection — describing columns, primary keys, foreign keys
+- Sample data retrieval — pulling rows to understand data shape
+- Validation queries — verifying data before or after transformations
+- Any ad-hoc SQL query against the ODBC source
+
+### How to dispatch
+
+Use the Agent tool with `subagent_type: "odbc-crawler"`. Give the agent a specific, scoped instruction:
+
+- "List all tables matching '%order%' and describe the top 3 results"
+- "Run `SELECT status, COUNT(*) FROM orders GROUP BY status` and return the results"
+- "Describe the customers table including foreign keys, then pull 5 sample rows"
+
+### What NOT to do
+
+- Do not call `mcp__odbc__*` tools directly from the main context — always go through the agent.
+- Do not ask the agent to interpret results or suggest next steps — it returns raw data. Interpretation happens in the main context.
+- Do not ask the agent to run multiple unrelated queries in one dispatch — send separate dispatches to keep results focused.

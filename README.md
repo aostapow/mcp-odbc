@@ -174,38 +174,6 @@ All tools accept an optional `connection` parameter for multi-connection setups.
 | `get_primary_keys` | Get primary key columns for a table |
 | `get_foreign_keys` | Get foreign key relationships for a table |
 
-### Example Prompts
-
-Once mcp-odbc is wired up, you can talk to your database in plain English. Here are prompts you can try, grouped by what you're trying to do.
-
-**Schema discovery** — finding and understanding tables:
-
-> "What tables are in my database related to customers?"
-
-> "Describe the orders table — show me columns, primary keys, and foreign keys."
-
-> "What foreign keys point to the products table?"
-
-**Data exploration** — quick queries without writing SQL:
-
-> "Show me 10 sample rows from the transactions table."
-
-> "How many rows are in the invoices table?"
-
-> "What are the distinct values in the status column of the orders table?"
-
-**Validation and debugging** — checking data when something looks wrong:
-
-> "Run this query against the staging connection: SELECT COUNT(*) FROM users WHERE created_at > '2025-01-01'"
-
-> "Compare the column types between the customers table on production and staging."
-
-**Working across connections** — multi-connection setups:
-
-> "List all my configured connections and test which ones are working."
-
-> "Show me the tables in the warehouse connection that don't exist in production."
-
 ### Example Interaction
 
 ```
@@ -243,18 +211,63 @@ Claude: [calls describe_table with table="InvoiceLines", include="all"]
 | InvoiceID      | AR_Invoices   | InvoiceID      |
 ```
 
-## Example: Claude Code Agent
+## Using with Claude Code Agents
 
-The [`examples/agents/`](examples/agents/) directory includes an example Claude Code agent that uses this MCP server. The `odbc-crawler` agent is a task-oriented sub-agent that the main Claude Code agent can dispatch to handle schema discovery and data queries.
+The MCP tools work fine when called directly, but on real projects the schema dumps and query results eat up your main context window fast. The better pattern is to **dispatch a sub-agent** that handles all database work in an isolated context and returns just the results you need.
 
-To use it, copy it into your project's agent directory:
+The [`examples/`](examples/) directory includes everything you need:
+
+| File | What it does |
+|------|-------------|
+| [`examples/agents/odbc-crawler.md`](examples/agents/odbc-crawler.md) | Agent prompt — copy to `.claude/agents/` |
+| [`examples/CLAUDE.md.example`](examples/CLAUDE.md.example) | CLAUDE.md snippet — tells Claude to auto-dispatch the agent |
+
+### Setup
+
+**Step 1:** Copy the agent into your project:
 
 ```bash
 mkdir -p .claude/agents
 cp examples/agents/odbc-crawler.md .claude/agents/
 ```
 
-Claude Code will then automatically dispatch the crawler agent when you ask questions like "what tables are related to inventory?" or "show me the schema for the orders table." See the [agent file](examples/agents/odbc-crawler.md) for the full prompt and usage examples.
+**Step 2:** Add the CLAUDE.md snippet to your project's `CLAUDE.md` (see [`examples/CLAUDE.md.example`](examples/CLAUDE.md.example) for the full block):
+
+```markdown
+## ODBC Data Source
+
+When you need to query, explore schema, or retrieve data from the database,
+**always dispatch the `odbc-crawler` agent** rather than calling MCP tools
+directly. This isolates database interactions in a separate context window
+so query results, schema dumps, and error diagnostics don't consume the
+main conversation context.
+```
+
+With both pieces in place, Claude Code will automatically dispatch the crawler agent whenever database work comes up — no special prompting needed.
+
+### Example Prompts
+
+These prompts explicitly invoke the sub-agent pattern. Once your CLAUDE.md is configured, Claude will dispatch automatically, but you can also be explicit:
+
+**Schema discovery:**
+
+> "Use the ODBC crawler to find all tables related to inventory and describe the top 3."
+
+> "Dispatch the crawler agent to describe the orders table with PKs and FKs, then show me what tables reference it."
+
+**Data exploration:**
+
+> "Send the ODBC crawler to pull 10 sample rows from the transactions table and summarize the column types it finds."
+
+> "Have the crawler check the distinct values in the status column of the orders table — I need to know what states exist before writing my query."
+
+**Validation across connections:**
+
+> "Dispatch the ODBC crawler against the staging connection to run: `SELECT COUNT(*) FROM users WHERE created_at > '2025-01-01'`"
+
+> "Use the crawler to compare the schema of the customers table between the production and staging connections — I want to see if the column types match."
+
+**Why this matters:** Each dispatch runs in its own context window. A `describe_table` call that returns 200 columns stays in the crawler's context — your main conversation only sees the summary the crawler returns. On large databases, this is the difference between Claude losing track of your task and Claude staying focused.
 
 ## Security
 
