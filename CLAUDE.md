@@ -1,6 +1,6 @@
 # CLAUDE.md — mcp-odbc
 
-Agent guide for building the Universal ODBC MCP Server.
+Agent and contributor guide for the Universal ODBC MCP Server.
 
 ---
 
@@ -149,22 +149,6 @@ query_timeout = 60
 connection_string = DRIVER={ODBC Driver 18 for SQL Server};SERVER=staging;DATABASE=erp;UID=sa;PWD=secret
 readonly = false
 ```
-
----
-
-## Phased Build Plan
-
-### Phase 1: MVP
-Scaffolding, config, ConnectionManager, GenericODBCAdapter, DBMS detection, 5 core tools (`list_dsns`, `test_connection`, `list_tables`, `describe_table`, `execute_query`), read-only enforcement, markdown formatting, error handling, entry point.
-
-### Phase 2: System Adapters
-NetSuite, SQL Server, PostgreSQL, MySQL, Oracle adapters. Encoding auto-config. `get_primary_keys`, `get_foreign_keys`, `search_tables` tools.
-
-### Phase 3: Advanced
-Schema caching + drift detection. `diagnose` tool. JSON output. Value truncation config. Multi-connection INI. Additional tools.
-
-### Phase 4: Polish
-Tests, README, PyPI publish, remaining adapters, HTTP transport option.
 
 ---
 

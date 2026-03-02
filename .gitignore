@@ -8,5 +8,27 @@ build/
 *.so
 .pytest_cache/
 .ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
 *.env
 config/config.ini
+*.log
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Local/private docs
+docs/local/
+
+# Claude Code
+.claude/
+
+# Virtual environments
+venv/
+.venv/

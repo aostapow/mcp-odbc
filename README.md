@@ -46,7 +46,7 @@ pip install mcp-odbc
 Or from source:
 
 ```bash
-git clone https://github.com/yourorg/mcp-odbc.git
+git clone https://github.com/phil-cheesman/mcp-odbc.git
 cd mcp-odbc
 pip install -e .
 ```

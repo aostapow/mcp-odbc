@@ -885,7 +885,7 @@ On Windows, MCP server paths use backslashes in JSON:
   "netsuite-odbc": {
     "command": "python",
     "args": [
-      "C:\\mcp-odbc\\mcp-odbc\\src\\server.py"
+      "C:\\dev\\mcp-odbc\\src\\server.py"
     ]
   }
 }
