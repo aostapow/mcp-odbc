@@ -1,6 +1,6 @@
 # mcp-odbc
 
-A Python MCP server that connects to **any ODBC data source** and exposes schema discovery + read-only query tools. Built on FastMCP v2, designed for Claude Code but works with any MCP client.
+A Python MCP server that connects to **any ODBC data source** and exposes schema discovery + query tools. Read-only by default, write access available per-connection. Built on FastMCP v2, designed for Claude Code but works with any MCP client.
 
 ```
 Claude Code  -->  mcp-odbc  -->  ODBC Driver  -->  Your Database
@@ -13,11 +13,11 @@ If your database has an ODBC driver, this server can talk to it.
 
 ## Why This Exists
 
-We studied [four existing ODBC MCP implementations](research/02_existing_implementations.md) and found they all shared the same gaps: no write protection, no credential sanitization in error output, monolithic architecture, and no test coverage. This project addresses all of them.
+We studied [four existing ODBC MCP implementations](research/02_existing_implementations.md) and found they all shared the same gaps: no access control, no credential sanitization in error output, monolithic architecture, and no test coverage. This project addresses all of them.
 
 | Gap in existing implementations | How mcp-odbc solves it |
 |---|---|
-| No read-only enforcement | 3-layer protection: ODBC driver flag + SQL validation + config flag |
+| No access control | 3-layer access control: ODBC driver flag + SQL validation + per-connection config |
 | Credentials leak in error messages | Regex sanitization strips `PWD=` values before they reach the LLM |
 | Single connection only | Named multi-connection config with per-connection settings |
 | Monolithic single-file design | 9 modules + adapter pattern for DBMS-specific extensions |
@@ -27,7 +27,7 @@ We studied [four existing ODBC MCP implementations](research/02_existing_impleme
 
 - **8 tools** for schema discovery and querying (see [Tools](#tools) below)
 - **Multi-connection** support with named connections and per-connection config
-- **Read-only by default** with 3 independent enforcement layers
+- **Read-only by default**, write access opt-in per-connection — 3 independent enforcement layers
 - **Credential sanitization** in all error output
 - **DBMS auto-detection** via `SQL_DBMS_NAME` (zero probe queries)
 - **Adapter pattern** for DBMS-specific metadata (extensible to any system)
@@ -111,7 +111,7 @@ For a single connection, set environment variables:
 | `ODBC_CONNECTION_STRING` | | Full connection string (alternative to DSN) |
 | `ODBC_UID` | | Username (appended to connection string if not already present) |
 | `ODBC_PWD` | | Password (appended to connection string if not already present) |
-| `ODBC_READ_ONLY` | `true` | Enable read-only enforcement |
+| `ODBC_READ_ONLY` | `true` | Read-only enforcement (`false` to allow writes) |
 | `ODBC_QUERY_TIMEOUT` | `30` | Query timeout in seconds |
 | `ODBC_CONNECT_TIMEOUT` | `10` | Connection timeout in seconds |
 | `ODBC_MAX_ROWS` | `10000` | Maximum rows returned per query |
@@ -170,7 +170,7 @@ All tools accept an optional `connection` parameter for multi-connection setups.
 | `test_connection` | Verify connectivity, report DBMS type and version |
 | `list_tables` | Discover tables/views with optional schema, type, and name pattern filters |
 | `describe_table` | Get columns, types, PKs, and FKs for a table |
-| `execute_query` | Run a read-only SQL query with row limits and markdown/JSON output |
+| `execute_query` | Run a SQL query with row limits and markdown/JSON output |
 | `get_primary_keys` | Get primary key columns for a table |
 | `get_foreign_keys` | Get foreign key relationships for a table |
 
@@ -267,13 +267,15 @@ The single-query examples are useful, but the real power is using the agent as a
 
 ## Security
 
-### Read-Only Enforcement (3 Layers)
+### Access Control (3 Layers)
 
-Write operations are blocked at three independent levels:
+When `readonly = true` (the default), write operations are blocked at three independent levels:
 
 1. **ODBC driver** — Connections open with `readonly=True`, which tells the driver to reject writes at the protocol level.
 2. **SQL validation** — Before execution, queries are parsed: comments are stripped, and the statement is rejected if it starts with anything other than `SELECT` or `WITH`, or contains write keywords (`INSERT`, `UPDATE`, `DELETE`, `DROP`, `TRUNCATE`, `GRANT`, `EXEC`, etc.).
-3. **Config flag** — Per-connection `readonly` setting (defaults to `true`). Set to `false` only if you explicitly need write access.
+3. **Config flag** — Per-connection `readonly` setting (defaults to `true`). Set `readonly = false` on any connection to allow write operations — all three layers step aside for that connection.
+
+This is configured per-connection, so you can have a locked-down production connection alongside a write-enabled staging connection in the same config file.
 
 ### Credential Sanitization
 
@@ -281,9 +283,9 @@ All error messages are scrubbed before reaching the LLM. Any `PWD=value` or `PAS
 
 ### Recommendations
 
-- Create a **read-only database user** for your ODBC connection. Database-level permissions are the strongest protection.
+- Create a **read-only database user** for connections that don't need write access. Database-level permissions are the strongest protection.
 - Keep credentials in environment variables or a gitignored INI file, not in source control.
-- Leave `readonly = true` (the default) unless you have a specific reason to allow writes.
+- Use `readonly = true` for production connections. Use `readonly = false` where writes are intentional (staging, testing, ETL workflows).
 
 ## Architecture
 
@@ -370,13 +372,6 @@ ODBC_DSN=MyDatabase python -m mcp_odbc
 | macOS | unixODBC via Homebrew | `brew install unixodbc` (do NOT use iODBC) |
 
 64-bit Python requires 64-bit ODBC drivers. `pyodbc.drivers()` only lists drivers matching your Python bitness.
-
-## Roadmap
-
-- [x] **Phase 1: MVP** — 8 tools, generic adapter, 3-layer readonly, multi-connection config, 69 tests
-- [ ] **Phase 2: DBMS Adapters** — SQL Server (`sys.*`), PostgreSQL (`pg_catalog`), MySQL (`INFORMATION_SCHEMA`), Oracle (`ALL_*`), NetSuite (`OA_TABLES`)
-- [ ] **Phase 3: Advanced** — Schema caching with TTL, `diagnose` tool, configurable value truncation
-- [ ] **Phase 4: Distribution** — PyPI publish, HTTP/SSE transport, additional adapters
 
 ## Contributing
 

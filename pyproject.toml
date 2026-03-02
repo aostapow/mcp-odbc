@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "mcp-odbc"
 version = "0.1.0"
-description = "Universal ODBC MCP server for Claude Code"
+description = "Universal ODBC MCP server — connect any database to Claude Code"
 license = "MIT"
 readme = "README.md"
 requires-python = ">=3.10"
