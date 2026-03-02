@@ -9,11 +9,30 @@ description = "Universal ODBC MCP server — connect any database to Claude Code
 license = "MIT"
 readme = "README.md"
 requires-python = ">=3.10"
+authors = [
+    { name = "Phil Cheesman" },
+]
+keywords = ["mcp", "odbc", "claude", "database", "sql", "fastmcp"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Database",
+    "Intended Audience :: Developers",
+]
 dependencies = [
     "fastmcp>=2.0,<3.0",
     "pyodbc>=5.0",
     "pydantic>=2.0",
 ]
+
+[project.urls]
+Repository = "https://github.com/phil-cheesman/mcp-odbc"
+Issues = "https://github.com/phil-cheesman/mcp-odbc/issues"
 
 [project.optional-dependencies]
 dev = ["pytest", "pytest-asyncio", "ruff"]
