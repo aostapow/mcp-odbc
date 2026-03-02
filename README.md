@@ -247,27 +247,23 @@ With both pieces in place, Claude Code will automatically dispatch the crawler a
 
 ### Example Prompts
 
-These prompts explicitly invoke the sub-agent pattern. Once your CLAUDE.md is configured, Claude will dispatch automatically, but you can also be explicit:
-
-**Schema discovery:**
+**Simple lookups** — the agent handles one focused task and returns:
 
 > "Use the ODBC crawler to find all tables related to inventory and describe the top 3."
 
-> "Dispatch the crawler agent to describe the orders table with PKs and FKs, then show me what tables reference it."
+> "Dispatch the crawler to check the distinct values in the status column of the orders table."
 
-**Data exploration:**
+**Bulk orchestration** — this is where the agent pattern really shines. Because each dispatch is an isolated context, you can fan out dozens of parallel agents across a large schema without any of them competing for context space:
 
-> "Send the ODBC crawler to pull 10 sample rows from the transactions table and summarize the column types it finds."
+> "I have these 50 source columns that need to be mapped to the new schema. For each one, dispatch a crawler to search for matching columns by name and data type, then compile the results into a mapping table."
 
-> "Have the crawler check the distinct values in the status column of the orders table — I need to know what states exist before writing my query."
+> "For each table in this list — orders, customers, products, inventory, shipments, returns — dispatch parallel crawlers to get the full schema with PKs and FKs, then generate a migration plan with the combined results."
 
-**Validation across connections:**
+> "Search the entire database for every table that contains a `customer_id` column. Fan out crawlers in batches, compile the results, and build me a dependency graph."
 
-> "Dispatch the ODBC crawler against the staging connection to run: `SELECT COUNT(*) FROM users WHERE created_at > '2025-01-01'`"
+> "I'm building column mappings between the source ERP and our target warehouse. Here's the target schema with 200 columns. Dispatch crawlers in parallel to find the most likely source column for each one based on name, type, and sample values."
 
-> "Use the crawler to compare the schema of the customers table between the production and staging connections — I want to see if the column types match."
-
-**Why this matters:** Each dispatch runs in its own context window. A `describe_table` call that returns 200 columns stays in the crawler's context — your main conversation only sees the summary the crawler returns. On large databases, this is the difference between Claude losing track of your task and Claude staying focused.
+The single-query examples are useful, but the real power is using the agent as a **parallelizable worker**. A task that would blow out a single context window — like mapping 200 columns across a schema with thousands of tables — becomes manageable when you can dispatch 20 crawlers simultaneously, each searching for a handful of columns and returning just the matches.
 
 ## Security
 
