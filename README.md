@@ -174,6 +174,38 @@ All tools accept an optional `connection` parameter for multi-connection setups.
 | `get_primary_keys` | Get primary key columns for a table |
 | `get_foreign_keys` | Get foreign key relationships for a table |
 
+### Example Prompts
+
+Once mcp-odbc is wired up, you can talk to your database in plain English. Here are prompts you can try, grouped by what you're trying to do.
+
+**Schema discovery** — finding and understanding tables:
+
+> "What tables are in my database related to customers?"
+
+> "Describe the orders table — show me columns, primary keys, and foreign keys."
+
+> "What foreign keys point to the products table?"
+
+**Data exploration** — quick queries without writing SQL:
+
+> "Show me 10 sample rows from the transactions table."
+
+> "How many rows are in the invoices table?"
+
+> "What are the distinct values in the status column of the orders table?"
+
+**Validation and debugging** — checking data when something looks wrong:
+
+> "Run this query against the staging connection: SELECT COUNT(*) FROM users WHERE created_at > '2025-01-01'"
+
+> "Compare the column types between the customers table on production and staging."
+
+**Working across connections** — multi-connection setups:
+
+> "List all my configured connections and test which ones are working."
+
+> "Show me the tables in the warehouse connection that don't exist in production."
+
 ### Example Interaction
 
 ```
