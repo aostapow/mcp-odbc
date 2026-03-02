@@ -211,6 +211,19 @@ Claude: [calls describe_table with table="InvoiceLines", include="all"]
 | InvoiceID      | AR_Invoices   | InvoiceID      |
 ```
 
+## Example: Claude Code Agent
+
+The [`examples/agents/`](examples/agents/) directory includes an example Claude Code agent that uses this MCP server. The `odbc-crawler` agent is a task-oriented sub-agent that the main Claude Code agent can dispatch to handle schema discovery and data queries.
+
+To use it, copy it into your project's agent directory:
+
+```bash
+mkdir -p .claude/agents
+cp examples/agents/odbc-crawler.md .claude/agents/
+```
+
+Claude Code will then automatically dispatch the crawler agent when you ask questions like "what tables are related to inventory?" or "show me the schema for the orders table." See the [agent file](examples/agents/odbc-crawler.md) for the full prompt and usage examples.
+
 ## Security
 
 ### Read-Only Enforcement (3 Layers)
