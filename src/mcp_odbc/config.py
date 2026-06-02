@@ -19,9 +19,11 @@ class ConnectionConfig(BaseModel):
     query_timeout: int = 30
     connect_timeout: int = 10
     max_rows: int = 10000
-    # Stored-procedure execution
     allow_sp: bool = False
-    sp_whitelist: list[str] = []   # if non-empty, only these SP names are allowed
+    sp_whitelist: list[str] = []
+    # Maximo de intentos fallidos de autenticacion antes de bloquear.
+    # 0 = sin limite (no recomendado en produccion).
+    max_auth_failures: int = 2
 
 
 class ServerConfig(BaseModel):
@@ -34,22 +36,13 @@ class ServerConfig(BaseModel):
 
 
 def _parse_ini_file(path: str | Path) -> ServerConfig:
-    """Parse INI config file into ServerConfig.
+    """Parsear archivo INI en ServerConfig.
 
-    [server] section holds server-level settings.
-    All other sections are connection definitions.
-
-    Connection strings may contain ``dpapi:<base64>`` tokens in place of
-    plain-text passwords.  These are transparently decrypted via
-    :func:`mcp_odbc.vault.decrypt_connection_string` using Windows DPAPI.
-
-    Stored-procedure options per connection::
-
-        allow_sp   = true
-        sp_whitelist = sp_cobis_saldos, sp_cobis_movimientos
+    Opciones nuevas por conexion:
+        max_auth_failures = 2   (0 para deshabilitar el bloqueo)
     """
     config = configparser.ConfigParser()
-    config.optionxform = str  # preserve key casing
+    config.optionxform = str
     config.read(str(path))
 
     server_kwargs: dict = {}
@@ -83,10 +76,12 @@ def _parse_ini_file(path: str | Path) -> ServerConfig:
         if "allow_sp" in items:
             conn_kwargs["allow_sp"] = items["allow_sp"].lower() in ("true", "1", "yes")
         if "sp_whitelist" in items:
-            # Comma-separated list of SP names
             conn_kwargs["sp_whitelist"] = [
                 s.strip() for s in items["sp_whitelist"].split(",") if s.strip()
             ]
+        if "max_auth_failures" in items:
+            conn_kwargs["max_auth_failures"] = int(items["max_auth_failures"])
+
         connections[section] = ConnectionConfig(**conn_kwargs)
 
     server_kwargs["connections"] = connections
@@ -94,13 +89,7 @@ def _parse_ini_file(path: str | Path) -> ServerConfig:
 
 
 def load_config() -> ServerConfig:
-    """Load configuration from INI file and/or environment variables.
-
-    Precedence (highest first):
-    1. Environment variables (create/override a "default" connection)
-    2. Config file path from ODBC_MCP_CONFIG env var
-    3. INI file at ./config/config.ini
-    """
+    """Cargar configuracion desde INI y/o variables de entorno."""
     config_path = os.environ.get("ODBC_MCP_CONFIG")
     if config_path and Path(config_path).exists():
         server_config = _parse_ini_file(config_path)
@@ -114,7 +103,6 @@ def load_config() -> ServerConfig:
 
     if dsn or conn_string:
         env_conn_string = conn_string if conn_string else f"DSN={dsn}"
-
         uid = os.environ.get("ODBC_UID")
         pwd = os.environ.get("ODBC_PWD")
         if uid and "UID=" not in env_conn_string.upper():
@@ -133,6 +121,7 @@ def load_config() -> ServerConfig:
             connect_timeout=int(os.environ.get("ODBC_CONNECT_TIMEOUT", "10")),
             max_rows=int(os.environ.get("ODBC_MAX_ROWS", "10000")),
             allow_sp=os.environ.get("ODBC_ALLOW_SP", "").lower() in ("true", "1", "yes"),
+            max_auth_failures=int(os.environ.get("ODBC_MAX_AUTH_FAILURES", "2")),
         )
         server_config.connections["default"] = env_conn
         server_config.default_connection = "default"

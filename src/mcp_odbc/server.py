@@ -9,7 +9,7 @@ import pyodbc
 from fastmcp import FastMCP
 from fastmcp.exceptions import ToolError
 
-from mcp_odbc import metadata
+from mcp_odbc import lockout, metadata
 from mcp_odbc.config import load_config
 from mcp_odbc.connection import ConnectionManager
 from mcp_odbc.errors import handle_odbc_error
@@ -21,7 +21,7 @@ _conn_manager: ConnectionManager | None = None
 
 def _get_manager() -> ConnectionManager:
     if _conn_manager is None:
-        raise ToolError("Server not initialized. No connections configured.")
+        raise ToolError("Servidor no inicializado.")
     return _conn_manager
 
 
@@ -29,20 +29,19 @@ def _get_manager() -> ConnectionManager:
 # Lifecycle
 # ---------------------------------------------------------------------------
 
-
 @asynccontextmanager
 async def lifespan(server: FastMCP):
     global _conn_manager
     config = load_config()
     _conn_manager = ConnectionManager(config)
-    print("mcp-odbc: server started", file=sys.stderr)
+    print("mcp-odbc: servidor iniciado", file=sys.stderr)
     try:
         yield
     finally:
         if _conn_manager:
             _conn_manager.close_all()
             _conn_manager = None
-        print("mcp-odbc: server stopped", file=sys.stderr)
+        print("mcp-odbc: servidor detenido", file=sys.stderr)
 
 
 mcp = FastMCP("mcp-odbc", lifespan=lifespan)
@@ -52,17 +51,12 @@ mcp = FastMCP("mcp-odbc", lifespan=lifespan)
 # Tools
 # ---------------------------------------------------------------------------
 
-
 @mcp.tool()
 def list_dsns() -> str:
-    """List all ODBC data sources (DSNs) configured on this system.
-
-    Use this to discover available data sources before connecting.
-    Returns a markdown table of DSN names and their drivers.
-    """
+    """Lista todos los DSN ODBC configurados en el sistema."""
     sources = pyodbc.dataSources()
     if not sources:
-        return "*No ODBC data sources found.*"
+        return "*No se encontraron origenes de datos ODBC.*"
     columns = ["DSN", "Driver"]
     rows = [(name, driver) for name, driver in sorted(sources.items())]
     return format_as_markdown(columns, rows)
@@ -70,22 +64,23 @@ def list_dsns() -> str:
 
 @mcp.tool()
 def list_connections() -> str:
-    """List all configured connections and their status.
+    """Lista las conexiones configuradas, su estado y bloqueo de autenticacion.
 
-    Shows which connections are active, their DBMS type, read-only status,
-    and whether stored procedures are enabled.
+    Muestra si una conexion esta bloqueada por intentos fallidos de login
+    y cuantos intentos fallidos acumula.
     """
     manager = _get_manager()
     conns = manager.list_connections()
     if not conns:
-        return "*No connections configured.*"
-    columns = ["Name", "Connected", "Read-Only", "Allow SP", "DBMS", "Adapter"]
+        return "*No hay conexiones configuradas.*"
+    columns = ["Nombre", "Conectado", "Solo-Lectura", "Bloqueada", "Intentos-Fallidos", "DBMS", "Adaptador"]
     rows = [
         (
             c["name"],
             str(c["connected"]),
             str(c["readonly"]),
-            str(c.get("allow_sp", False)),
+            "SI" if c.get("locked") else "no",
+            str(c.get("auth_attempts", 0)),
             c["dbms"],
             c["adapter"],
         )
@@ -96,10 +91,10 @@ def list_connections() -> str:
 
 @mcp.tool()
 def test_connection(connection: str | None = None) -> str:
-    """Test an ODBC connection and report DBMS type and version.
+    """Verificar conectividad e informar tipo y version del DBMS.
 
     Args:
-        connection: Connection name. Uses default if not specified.
+        connection: Nombre de la conexion. Usa la default si no se especifica.
     """
     manager = _get_manager()
     try:
@@ -110,10 +105,49 @@ def test_connection(connection: str | None = None) -> str:
         raise handle_odbc_error(exc) from exc
 
     info = manager.get_dbms_info(connection)
-    lines = ["**Connection successful**\n", "| Property | Value |", "| --- | --- |"]
+    lines = ["**Conexion exitosa**\n", "| Propiedad | Valor |", "| --- | --- |"]
     for key, value in info.items():
         lines.append(f"| {key} | {value} |")
     return "\n".join(lines)
+
+
+@mcp.tool()
+def reset_lockout(connection: str) -> str:
+    """Desbloquear una conexion bloqueada por intentos fallidos de autenticacion.
+
+    Usar este tool despues de corregir las credenciales en config.ini para
+    volver a habilitar los intentos de conexion.
+
+    Args:
+        connection: Nombre de la conexion a desbloquear.
+    """
+    manager = _get_manager()
+    if connection not in manager.config.connections:
+        raise ToolError(
+            f"Conexion desconocida '{connection}'. "
+            f"Disponibles: {', '.join(manager.config.connections.keys()) or '(ninguna)'}"
+        )
+
+    prev = lockout.reset_manual(connection)
+
+    if not prev:
+        return f"La conexion '{connection}' no tenia intentos registrados."
+
+    was_locked = prev.get("locked", False)
+    attempts   = prev.get("attempts", 0)
+    last       = prev.get("last_failure") or "nunca"
+
+    if was_locked:
+        return (
+            f"Conexion '{connection}' DESBLOQUEADA.\n"
+            f"- Intentos fallidos previos: {attempts}\n"
+            f"- Ultimo fallo: {last}\n"
+            "Ahora puede volver a intentar la conexion."
+        )
+    return (
+        f"Conexion '{connection}' reseteada "
+        f"(tenia {attempts} intento(s) fallido(s), no estaba bloqueada)."
+    )
 
 
 @mcp.tool()
@@ -123,31 +157,25 @@ def list_tables(
     table_type: str | None = None,
     name_pattern: str | None = None,
 ) -> str:
-    """List tables and views in the database.
-
-    Use name_pattern to filter by table name with SQL LIKE wildcards (% and _).
-    Examples: "%invoice%" finds all tables containing "invoice".
+    """Listar tablas y vistas de la base de datos.
 
     Args:
-        connection:   Connection name. Uses default if not specified.
-        schema:       Filter by schema/owner name.
-        table_type:   Filter by type — "TABLE", "VIEW", "SYSTEM TABLE".
-        name_pattern: SQL LIKE pattern for the table name.
+        connection:   Nombre de la conexion.
+        schema:       Filtrar por esquema/owner.
+        table_type:   Filtrar por tipo: TABLE, VIEW, SYSTEM TABLE.
+        name_pattern: Patron LIKE para el nombre de la tabla (% y _).
     """
     manager = _get_manager()
     try:
         tables = metadata.get_tables(
-            manager,
-            connection=connection,
-            schema=schema,
-            table_type=table_type,
-            name_pattern=name_pattern,
+            manager, connection=connection, schema=schema,
+            table_type=table_type, name_pattern=name_pattern,
         )
     except pyodbc.Error as exc:
         raise handle_odbc_error(exc) from exc
 
     if not tables:
-        return "*No tables found.*"
+        return "*No se encontraron tablas.*"
     columns = list(tables[0].keys())
     rows = [tuple(t.get(c, "") for c in columns) for t in tables]
     return format_as_markdown(columns, rows)
@@ -160,13 +188,13 @@ def describe_table(
     schema: str | None = None,
     include: str = "columns",
 ) -> str:
-    """Describe a table's structure — columns, primary keys, and/or foreign keys.
+    """Describir la estructura de una tabla: columnas, PKs y FKs.
 
     Args:
-        table:      Table name to describe.
-        connection: Connection name. Uses default if not specified.
-        schema:     Schema/owner of the table.
-        include:    "columns" (default), "all", or comma-separated "columns,pks,fks".
+        table:      Nombre de la tabla.
+        connection: Nombre de la conexion.
+        schema:     Esquema/owner de la tabla.
+        include:    columns (default), all, o combinacion: columns,pks,fks.
     """
     manager = _get_manager()
     include_parts = {p.strip().lower() for p in include.split(",")}
@@ -182,19 +210,18 @@ def describe_table(
 
     parts: list[str] = []
     if cols:
-        parts.append(f"### Columns — {table}\n")
+        parts.append(f"### Columnas — {table}\n")
         col_headers = list(cols[0].keys())
         parts.append(format_as_markdown(col_headers, [tuple(c.get(h, "") for h in col_headers) for c in cols]))
     else:
-        parts.append(f"*No columns found for table '{table}'.*")
+        parts.append(f"*No se encontraron columnas para '{table}'.*")
 
     if pks:
-        parts.append("\n### Primary Keys\n")
+        parts.append("\n### Claves Primarias\n")
         pk_headers = list(pks[0].keys())
         parts.append(format_as_markdown(pk_headers, [tuple(p.get(h, "") for h in pk_headers) for p in pks]))
-
     if fks:
-        parts.append("\n### Foreign Keys\n")
+        parts.append("\n### Claves Foraneas\n")
         fk_headers = list(fks[0].keys())
         parts.append(format_as_markdown(fk_headers, [tuple(f.get(h, "") for h in fk_headers) for f in fks]))
 
@@ -208,16 +235,13 @@ def execute_query(
     max_rows: int = 100,
     format: str = "markdown",
 ) -> str:
-    """Execute a read-only SQL SELECT query and return results.
-
-    Only SELECT (and WITH for CTEs) are allowed — write operations are blocked.
-    All executions are recorded in the audit log.
+    """Ejecutar una consulta SELECT de solo lectura y devolver resultados.
 
     Args:
-        query:      SQL SELECT query to execute.
-        connection: Connection name. Uses default if not specified.
-        max_rows:   Maximum rows to return (default 100, max 10000).
-        format:     Output format — "markdown" (default) or "json".
+        query:      Consulta SQL SELECT a ejecutar.
+        connection: Nombre de la conexion.
+        max_rows:   Maximo de filas a devolver (default 100, max 10000).
+        format:     Formato de salida: markdown (default) o json.
     """
     manager = _get_manager()
     resolved = manager._resolve_name(connection)
@@ -227,14 +251,8 @@ def execute_query(
     readonly = conn_config.readonly if conn_config else True
 
     cnxn = manager.get(connection)
-    return run_query(
-        cnxn,
-        query,
-        max_rows=max_rows,
-        readonly=readonly,
-        format=format,
-        connection_name=resolved,
-    )
+    return run_query(cnxn, query, max_rows=max_rows, readonly=readonly,
+                     format=format, connection_name=resolved)
 
 
 @mcp.tool()
@@ -245,96 +263,55 @@ def execute_sp(
     max_rows: int = 100,
     format: str = "markdown",
 ) -> str:
-    """Execute a whitelisted stored procedure and return results.
-
-    Stored procedure execution must be explicitly enabled per connection in
-    config.ini (``allow_sp = true``). If ``sp_whitelist`` is configured, only
-    procedures in that list are accepted.
-
-    All executions are recorded in the audit log.
-
-    Use this for COBIS stored procedures (e.g. sp_cobis_saldos) that cannot
-    be expressed as a plain SELECT.
+    """Ejecutar un stored procedure habilitado en la whitelist.
 
     Args:
-        sp_name:    Name of the stored procedure (alphanumeric / _ / @ / # only).
-        params:     Positional parameters as strings (cast by the driver).
-        connection: Connection name. Uses default if not specified.
-        max_rows:   Maximum rows to return (default 100).
-        format:     Output format — "markdown" (default) or "json".
+        sp_name:    Nombre del stored procedure.
+        params:     Parametros posicionales como strings.
+        connection: Nombre de la conexion.
+        max_rows:   Maximo de filas a devolver.
+        format:     markdown (default) o json.
     """
     manager = _get_manager()
     resolved = manager._resolve_name(connection)
     conn_config = manager.config.connections.get(resolved)
-
     if conn_config is None:
-        raise ToolError(
-            f"Unknown connection '{resolved}'. "
-            f"Available: {', '.join(manager.config.connections.keys()) or '(none)'}"
-        )
+        raise ToolError(f"Conexion desconocida '{resolved}'.")
 
-    config_max = conn_config.max_rows
-    max_rows = min(max_rows, config_max)
     cnxn = manager.get(connection)
-
     return run_stored_procedure(
-        cnxn,
-        sp_name=sp_name,
-        params=params or [],
-        max_rows=max_rows,
+        cnxn, sp_name=sp_name, params=params or [],
+        max_rows=min(max_rows, conn_config.max_rows),
         allow_sp=conn_config.allow_sp,
         sp_whitelist=conn_config.sp_whitelist,
-        format=format,
-        connection_name=resolved,
+        format=format, connection_name=resolved,
     )
 
 
 @mcp.tool()
-def get_primary_keys(
-    table: str,
-    connection: str | None = None,
-    schema: str | None = None,
-) -> str:
-    """Get primary key columns for a table.
-
-    Args:
-        table:      Table name.
-        connection: Connection name. Uses default if not specified.
-        schema:     Schema/owner of the table.
-    """
+def get_primary_keys(table: str, connection: str | None = None, schema: str | None = None) -> str:
+    """Obtener columnas de clave primaria de una tabla."""
     manager = _get_manager()
     try:
         pks = metadata.get_primary_keys(manager, table=table, connection=connection, schema=schema)
     except pyodbc.Error as exc:
         raise handle_odbc_error(exc) from exc
-
     if not pks:
-        return f"*No primary keys found for table '{table}'.*"
+        return f"*No se encontraron claves primarias para '{table}'.*"
     columns = list(pks[0].keys())
     return format_as_markdown(columns, [tuple(p.get(c, "") for c in columns) for p in pks])
 
 
 @mcp.tool()
-def get_foreign_keys(
-    table: str,
-    connection: str | None = None,
-    schema: str | None = None,
-) -> str:
-    """Get foreign key relationships for a table.
-
-    Args:
-        table:      Table name.
-        connection: Connection name. Uses default if not specified.
-        schema:     Schema/owner of the table.
-    """
+def get_foreign_keys(table: str, connection: str | None = None, schema: str | None = None) -> str:
+    """Obtener relaciones de clave foranea de una tabla."""
     manager = _get_manager()
     try:
         fks = metadata.get_foreign_keys(manager, table=table, connection=connection, schema=schema)
     except pyodbc.Error as exc:
         raise handle_odbc_error(exc) from exc
-
     if not fks:
-        return f"*No foreign keys found for table '{table}'.*"
+        return f"*No se encontraron claves foraneas para '{table}'.*"
     columns = list(fks[0].keys())
     return format_as_markdown(columns, [tuple(f.get(c, "") for c in columns) for f in fks])
 
@@ -342,7 +319,6 @@ def get_foreign_keys(
 # ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
-
 
 def main() -> None:
     mcp.run()
