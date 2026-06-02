@@ -31,11 +31,14 @@ dependencies = [
 ]
 
 [project.urls]
-Repository = "https://github.com/phil-cheesman/mcp-odbc"
-Issues = "https://github.com/phil-cheesman/mcp-odbc/issues"
+Repository = "https://github.com/aostapow/mcp-odbc"
+Issues = "https://github.com/aostapow/mcp-odbc/issues"
 
 [project.optional-dependencies]
+# Windows DPAPI credential vault (requires pywin32, Windows only)
+vault = ["pywin32>=306"]
 dev = ["pytest", "pytest-asyncio", "ruff"]
 
 [project.scripts]
 mcp-odbc = "mcp_odbc.server:main"
+setup-vault = "scripts.setup_vault:main"
