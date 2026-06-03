@@ -35,10 +35,10 @@ Las contrasenas en `config.ini` se almacenan cifradas con la API de proteccion d
 
 ```ini
 # Antes (texto plano — no recomendado)
-connection_string = DSN=cobis;UID=lector;PWD=mi_password
+connection_string = DSN=MiBaseDeDatos;UID=lector;PWD=mi_password
 
 # Despues (cifrado con DPAPI)
-connection_string = DSN=cobis;UID=lector;PWD=dpapi:AQAAANCMnd8BFdERjH...
+connection_string = DSN=MiBaseDeDatos;UID=lector;PWD=dpapi:AQAAANCMnd8BFdERjH...
 ```
 
 Para cifrar las contrasenas existentes:
@@ -82,16 +82,16 @@ El driver ODBC de Adaptive Server no implementa correctamente las funciones de c
 | `sysindexes` | Inferir claves primarias |
 | `sysreferences` | Relaciones de claves foraneas |
 
-Se activa automaticamente cuando el servidor detecta `"Adaptive Server"` en `SQL_DBMS_NAME`. Compatible con el nucleo COBIS bancario.
+Se activa automaticamente cuando el servidor detecta `"Adaptive Server"` en `SQL_DBMS_NAME`.
 
 ### 5. Ejecucion de stored procedures con whitelist
 Por defecto los SPs estan deshabilitados. Se habilitan por conexion con dos controles:
 
 ```ini
-[soc1]
+[produccion]
 connection_string = ...
 allow_sp = true
-sp_whitelist = sp_cobis_saldos, sp_cobis_movimientos, sp_cobis_extracto
+sp_whitelist = sp_get_balance, sp_get_movements, sp_get_statement
 ```
 
 - Si `sp_whitelist` esta vacio: cualquier SP del sistema es ejecutable.
@@ -103,7 +103,7 @@ sp_whitelist = sp_cobis_saldos, sp_cobis_movimientos, sp_cobis_extracto
 ## Instalacion
 
 ### Requisitos
-- Python **32-bit** si tu driver ODBC es de 32 bits (caso tipico con Sybase ASE en Windows)
+- Python **32-bit** si tu driver ODBC es de 32 bits (verificar con `pyodbc.drivers()`)
 - Driver ODBC instalado para tu base de datos
 
 ```bash
@@ -124,7 +124,7 @@ Editar `claude_desktop_config.json`:
 ```json
 {
   "mcpServers": {
-    "mcp-odbc-soc1": {
+    "mcp-odbc": {
       "command": "C:\\ruta\\al\\venv\\Scripts\\python.exe",
       "args": ["-m", "mcp_odbc"],
       "env": {
@@ -155,20 +155,20 @@ ODBC_MAX_ROWS=5000
 
 ```ini
 [server]
-default_connection = soc1
+default_connection = produccion
 max_rows = 5000
 cache_ttl = 300
 
-[soc1]
-connection_string = DRIVER={Adaptive Server Enterprise};SERVER=soc1-host;PORT=5000;DATABASE=cobis;UID=mcp_reader;PWD=dpapi:AQAAANCMnd8...
+[produccion]
+connection_string = DRIVER={Mi Driver ODBC};SERVER=prod-host;PORT=5000;DATABASE=mi_bd;UID=lector;PWD=dpapi:AQAAANCMnd8...
 readonly         = true
 query_timeout    = 60
 connect_timeout  = 15
 allow_sp         = true
-sp_whitelist     = sp_cobis_saldos, sp_cobis_movimientos, sp_cobis_extracto
+sp_whitelist     = sp_get_balance, sp_get_movements
 
-[soc2]
-connection_string = DRIVER={Adaptive Server Enterprise};SERVER=soc2-host;PORT=5000;DATABASE=cobis;UID=mcp_qa;PWD=dpapi:AQAAANCMnd8...
+[qa]
+connection_string = DRIVER={Mi Driver ODBC};SERVER=qa-host;PORT=5000;DATABASE=mi_bd;UID=qa_user;PWD=dpapi:AQAAANCMnd8...
 readonly         = false
 query_timeout    = 30
 allow_sp         = true
@@ -191,7 +191,7 @@ python scripts/setup_vault.py --dry-run
 python scripts/setup_vault.py
 
 # Solo una conexion especifica
-python scripts/setup_vault.py --section soc1
+python scripts/setup_vault.py --section produccion
 ```
 
 El script es idempotente: las contrasenas ya cifradas (`dpapi:...`) se saltean.
@@ -214,36 +214,36 @@ Todas aceptan el parametro opcional `connection` para elegir la conexion.
 | `get_foreign_keys` | Obtiene las relaciones de clave foranea de una tabla |
 | `execute_sp` | Ejecuta un stored procedure habilitado en la whitelist |
 
-### Ejemplo de uso con COBIS
+### Ejemplo de uso
 
 ```
-Usuario: Que tablas tienen informacion de cuentas de ahorro?
+Usuario: Que tablas tienen informacion de clientes?
 
-Claude: [llama list_tables con name_pattern="%ah_%"]
+Claude: [llama list_tables con name_pattern="%client%"]
 
 | table_name       | table_owner | table_type |
-| cob_ahorros      | dbo         | TABLE      |
-| ah_cuenta        | dbo         | TABLE      |
-| ah_movimiento    | dbo         | TABLE      |
+| clients          | dbo         | TABLE      |
+| client_accounts  | dbo         | TABLE      |
+| client_history   | dbo         | TABLE      |
 
-Usuario: Describe ah_cuenta
+Usuario: Describe client_accounts
 
-Claude: [llama describe_table con table="ah_cuenta", include="all"]
+Claude: [llama describe_table con table="client_accounts", include="all"]
 
-### Columnas — ah_cuenta
+### Columnas — client_accounts
 | column_name     | type_name | max_length | is_nullable |
-| cuenta          | int       | 4          | NO          |
-| titular         | varchar   | 60         | NO          |
-| saldo           | money     | 8          | YES         |
-| fecha_apertura  | datetime  | 8          | YES         |
+| account_id      | int       | 4          | NO          |
+| client_id       | int       | 4          | NO          |
+| balance         | money     | 8          | YES         |
+| open_date       | datetime  | 8          | YES         |
 
 ### Claves primarias
-| column_name | pk_name       |
-| cuenta      | pk_ah_cuenta  |
+| column_name | pk_name              |
+| account_id  | pk_client_accounts   |
 
 Usuario: Ejecuta el SP de saldos para la cuenta 10045
 
-Claude: [llama execute_sp con sp_name="sp_cobis_saldos", params=["10045"]]
+Claude: [llama execute_sp con sp_name="sp_get_balance", params=["10045"]]
 ```
 
 ---
@@ -275,7 +275,7 @@ src/mcp_odbc/
   adapters/
     base.py           # ABC SystemAdapter
     generic.py        # GenericODBCAdapter (funciona con cualquier driver)
-    sybase.py         # SybaseAdapter para Sybase ASE 16 / COBIS
+    sybase.py         # SybaseAdapter para Sybase ASE 16
 scripts/
   setup_vault.py      # CLI para cifrar contrasenas en config.ini
 ```
